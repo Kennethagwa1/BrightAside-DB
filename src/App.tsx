@@ -13,6 +13,7 @@ import {
   Heart, 
   AlertCircle, 
   Settings as SettingsIcon,
+  Globe,
   ChevronRight,
   LogOut,
   LayoutDashboard,
@@ -219,6 +220,14 @@ export default function App() {
                 Admin Login
               </button>
             </div>
+            
+            <button 
+              onClick={() => setShowSetup(true)}
+              className="mt-12 mx-auto text-slate-500 hover:text-accent text-[10px] font-bold uppercase tracking-[0.2em] transition-colors flex items-center justify-center gap-2"
+            >
+              <SettingsIcon size={12} />
+              Configure System Connection
+            </button>
           </motion.div>
         </div>
       </section>
@@ -1115,13 +1124,20 @@ export default function App() {
       }
       try {
         setIsLoading(true);
-        const data = await API.get('authenticate', role === 'admin' ? { role, username: uname, password: pass } : { role, memberId: mId, pin });
-        if (data && data.success) {
-          const userObj = role === 'admin' ? { role: 'admin', name: 'Administrator' } : { role: 'member', name: data.user.member.name, member: data.user.member };
+        const data = await API.get('login', role === 'admin' 
+          ? { username: uname, password: pass } 
+          : { username: mId, password: pin }
+        );
+        if (data) {
+          const userObj = { 
+            role: data.role, 
+            name: data.name, 
+            member: data.member 
+          };
           sessionStorage.setItem('SACCO_USER', JSON.stringify(userObj));
           setUser(userObj);
-          setView(role === 'admin' ? 'admin-dashboard' : 'member-portal');
-          addToast(`Welcome back, ${userObj.name}!`);
+          setView(data.role === 'admin' ? 'admin-dashboard' : 'member-portal');
+          addToast(`Welcome back, ${data.name}!`);
         } else {
           addToast('Invalid credentials', 'error');
         }
@@ -1181,9 +1197,18 @@ export default function App() {
               {isLoading ? 'Authenticating...' : 'Sign In Now'}
               {!isLoading && <ChevronRight size={18} />}
             </button>
-            <button onClick={() => setView('landing')} className="w-full text-center text-muted text-xs hover:text-primary mt-2">
+            <button onClick={() => setView('landing')} className="w-full text-center text-muted text-xs hover:text-primary mt-4">
               Back to Landing
             </button>
+            <div className="pt-4 border-t border-slate-100">
+              <button 
+                onClick={() => setShowSetup(true)}
+                className="w-full flex items-center justify-center gap-2 text-[10px] font-bold text-slate-400 hover:text-accent uppercase tracking-widest"
+              >
+                <Globe size={12} />
+                Update Backend Link
+              </button>
+            </div>
           </div>
         </motion.div>
       </div>
