@@ -198,7 +198,7 @@ export default function App() {
         <div className="container mx-auto px-6 relative z-10 text-center">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
             <span className="inline-block px-4 py-1 bg-white/10 text-accent font-semibold rounded-full text-xs uppercase tracking-widest mb-6 border border-white/10">
-              Kenyan Savings & Credit Co-operative
+              Kenyan Savings Group
             </span>
             <h1 className="text-5xl md:text-7xl font-bold text-white mb-6 tracking-tight">
               Bright Aside <br/> <span className="text-accent">Self Help Group</span>
@@ -257,7 +257,7 @@ export default function App() {
             A registered self-help group dedicated to the economic empowerment of its members.
           </p>
           <div className="text-[10px] text-muted uppercase tracking-widest font-bold">
-            &copy; {new Date().getFullYear()} Bright Aside SHG • Built with Google AI Studio
+            &copy; {new Date().getFullYear()} Bright Aside Self Help Group
           </div>
         </div>
       </footer>
@@ -385,7 +385,7 @@ export default function App() {
 
       {/* Mini Footer Strip inside layout */}
       <div className="col-span-4 flex justify-between items-center px-2 py-4 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-        <p>© {new Date().getFullYear()} Bright Aside SACCO • All Rights Reserved</p>
+        <p>© {new Date().getFullYear()} Bright Aside SHG • All Rights Reserved</p>
         <div className="flex gap-6">
           <span>System v2.4.1</span>
           <span>Connected to Google Sheets DB</span>
