@@ -1,0 +1,242 @@
+/* 
+  BRIGHT ASIDE SACCO - BACKEND (GOOGLE APPS SCRIPT)
+  Copy this into your Google Apps Script editor.
+  Then Deploy -> New Deployment -> Web App (Execute as Me, Who has access: Anyone)
+*/
+
+const SHEET_NAME = 'BrightAside DB';
+const VERSION = '2.5.0';
+
+function doGet(e) {
+  const action = e.parameter.action;
+  const db = getDB();
+  
+  try {
+    switch(action) {
+      case 'getDashboard': return jsonRes(getDashboardData(db));
+      case 'getMembers': return jsonRes(getTableData(db, 'Members'));
+      case 'getLoanRequests': return jsonRes(getTableData(db, 'LoanRequests'));
+      case 'getLoans': return jsonRes(getMemberLoans(db, e.parameter.memberId));
+      case 'getSavings': return jsonRes(getMemberSavings(db, e.parameter.memberId));
+      case 'initSheet': return jsonRes(initSheet());
+      case 'login': return jsonRes(handleLogin(db, e.parameter.username, e.parameter.password));
+      default: return jsonRes({ error: 'Unknown action' }, false);
+    }
+  } catch (err) {
+    return jsonRes({ error: err.toString() }, false);
+  }
+}
+
+function doPost(e) {
+  const data = JSON.parse(e.postData.contents);
+  const action = data.action;
+  const payload = data.payload;
+  const db = getDB();
+
+  try {
+    switch(action) {
+      case 'submitLoanRequest': return jsonRes(addRecord(db, 'LoanRequests', payload));
+      case 'updateLoanRequest': return jsonRes(updateRecord(db, 'LoanRequests', payload.id, payload.data));
+      case 'approveLoan': return jsonRes(approveLoan(db, payload.requestId));
+      case 'saveSavings': return jsonRes(saveSavings(db, payload));
+      case 'updateMember': return jsonRes(updateRecord(db, 'Members', payload.id, payload.data));
+      case 'deleteMember': return jsonRes(deleteRecord(db, 'Members', payload.id));
+      case 'deleteLoanRequest': return jsonRes(deleteRecord(db, 'LoanRequests', payload.id));
+      default: return jsonRes({ error: 'Unknown action' }, false);
+    }
+  } catch (err) {
+    return jsonRes({ error: err.toString() }, false);
+  }
+}
+
+// --- CORE LOGIC ---
+
+function getDashboardData(db) {
+  const savings = getTableData(db, 'Savings');
+  const members = getTableData(db, 'Members');
+  const loans = getTableData(db, 'Loans');
+  const fines = getTableData(db, 'Fines');
+
+  const totalSavings = savings.reduce((acc, s) => acc + (parseFloat(s.amount) || 0), 0);
+  const activeLoans = loans.filter(l => l.status === 'active');
+  const totalArrears = activeLoans.reduce((acc, l) => acc + (parseFloat(l.balance) || 0), 0);
+  const pendingFines = fines.filter(f => f.status === 'pending').reduce((acc, f) => acc + (parseFloat(f.amount) || 0), 0);
+
+  return {
+    totalSavings,
+    memberCount: members.length,
+    activeLoansCount: activeLoans.length,
+    totalArrears,
+    totalPendingFines: pendingFines,
+    version: VERSION
+  };
+}
+
+function handleLogin(db, username, password) {
+  const settings = getTableData(db, 'Settings')[0];
+  const members = getTableData(db, 'Members');
+
+  // Admin login
+  if (username === settings.adminUsername && password === settings.adminPassword) {
+    return { role: 'admin', name: 'System Admin' };
+  }
+
+  // Member login (PIN based)
+  const member = members.find(m => String(m.id) === username || m.email === username);
+  if (member && member.pin === password) {
+    return { role: 'member', name: member.name, member: member };
+  }
+
+  throw new Error('Invalid credentials');
+}
+
+function approveLoan(db, requestId) {
+  const requests = getTableData(db, 'LoanRequests');
+  const req = requests.find(r => r.id == requestId);
+  if (!req) throw new Error('Request not found');
+
+  // Update request status
+  updateRecord(db, 'LoanRequests', requestId, { status: 'approved' });
+
+  // Create active loan
+  const startDate = new Date();
+  const graceEndDate = new Date(startDate.getTime() + (14 * 24 * 60 * 60 * 1000)); // 2 weeks grace
+  
+  const newLoan = {
+    id: 'L' + Date.now(),
+    memberId: req.memberId,
+    principal: req.principal,
+    balance: req.totalDue,
+    installment: req.totalDue / (req.termYears * 52), // Weekly installments
+    startDate: startDate.toISOString(),
+    repaymentStartDate: graceEndDate.toISOString(),
+    status: 'active',
+    termYears: req.termYears
+  };
+
+  return addRecord(db, 'Loans', newLoan);
+}
+
+function calculateOverdueFine(weeksOverdue) {
+  if (weeksOverdue <= 0) return 0;
+  let totalFine = 0;
+  let prevAccumulated = 0;
+  
+  for (let w = 1; w <= weeksOverdue; w++) {
+    // Current week base fine is 50
+    const currentBase = 50;
+    // Plus 50% of whatever was accumulated before this week
+    const currentPenalty = prevAccumulated * 0.5;
+    
+    totalFine += (currentBase + currentPenalty);
+    prevAccumulated += (currentBase + currentPenalty);
+  }
+  return totalFine;
+}
+
+// --- DATABASE UTILS ---
+
+function getDB() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
+  return sheet;
+}
+
+function getTableData(sheet, tableName) {
+  const data = sheet.getDataRange().getValues();
+  const tableStart = data.findIndex(row => row[0] === `TABLE:${tableName}`);
+  if (tableStart === -1) return [];
+  
+  const headers = data[tableStart + 1];
+  const rows = [];
+  for (let i = tableStart + 2; i < data.length; i++) {
+    if (data[i][0] === '' || String(data[i][0]).startsWith('TABLE:')) break;
+    const obj = {};
+    headers.forEach((h, idx) => {
+      if (h) obj[h] = data[i][idx];
+    });
+    rows.push(obj);
+  }
+  return rows;
+}
+
+function addRecord(sheet, tableName, record) {
+  const data = sheet.getDataRange().getValues();
+  const tableStart = data.findIndex(row => row[0] === `TABLE:${tableName}`);
+  if (tableStart === -1) throw new Error('Table not found');
+
+  const headers = data[tableStart + 1].filter(h => h !== '');
+  const newRow = headers.map(h => record[h] || '');
+  
+  // Find table end
+  let insertIdx = tableStart + 2;
+  while (insertIdx < data.length && data[insertIdx][0] !== '' && !String(data[insertIdx][0]).startsWith('TABLE:')) {
+    insertIdx++;
+  }
+
+  sheet.insertRowBefore(insertIdx + 1);
+  sheet.getRange(insertIdx + 1, 1, 1, newRow.length).setValues([newRow]);
+  return { success: true, id: record.id };
+}
+
+function updateRecord(sheet, tableName, id, newData) {
+  const data = sheet.getDataRange().getValues();
+  const tableStart = data.findIndex(row => row[0] === `TABLE:${tableName}`);
+  const headers = data[tableStart + 1];
+  
+  for (let i = tableStart + 2; i < data.length; i++) {
+    if (data[i][0] == id) {
+      headers.forEach((h, idx) => {
+        if (newData[h] !== undefined) {
+          sheet.getRange(i + 1, idx + 1).setValue(newData[h]);
+        }
+      });
+      return { success: true };
+    }
+  }
+}
+
+function deleteRecord(sheet, tableName, id) {
+  const data = sheet.getDataRange().getValues();
+  const tableStart = data.findIndex(row => row[0] === `TABLE:${tableName}`);
+  for (let i = tableStart + 2; i < data.length; i++) {
+    if (data[i][0] == id) {
+      sheet.deleteRow(i + 1);
+      return { success: true };
+    }
+  }
+}
+
+function jsonRes(data, ok = true) {
+  return ContentService.createTextOutput(JSON.stringify({ ok, data }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function initSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_NAME);
+  if (sheet) ss.deleteSheet(sheet);
+  sheet = ss.insertSheet(SHEET_NAME);
+
+  const tables = [
+    ['Settings', ['adminUsername', 'adminPassword']],
+    ['Members', ['id', 'name', 'email', 'pin', 'designation', 'phone']],
+    ['Savings', ['id', 'memberId', 'amount', 'date', 'week', 'status']],
+    ['Loans', ['id', 'memberId', 'principal', 'balance', 'installment', 'startDate', 'repaymentStartDate', 'status', 'termYears']],
+    ['LoanRequests', ['id', 'memberId', 'principal', 'termYears', 'interestRate', 'interest', 'insurance', 'totalDue', 'requestDate', 'status', 'notes']],
+    ['Fines', ['id', 'memberId', 'amount', 'reason', 'date', 'status']]
+  ];
+
+  let currRow = 1;
+  tables.forEach(t => {
+    sheet.getRange(currRow, 1).setValue(`TABLE:${t[0]}`).setFontWeight('bold');
+    sheet.getRange(currRow + 1, 1, 1, t[1].length).setValues([t[1]]).setBackground('#f3f3f3');
+    currRow += 100; // Space for 100 rows per table initially
+  });
+
+  // Seed default settings
+  addRecord(sheet, 'Settings', { adminUsername: 'admin', adminPassword: 'brightaside2024' });
+  
+  return { initialized: true };
+}

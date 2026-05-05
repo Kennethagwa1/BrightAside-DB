@@ -1,0 +1,167 @@
+<!-- === index.html (Standalone) === -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bright Aside SACCO - Management System</title>
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #0f172a;
+            --accent: #f59e0b;
+        }
+        body { font-family: 'Poppins', sans-serif; background: #f1f5f9; color: #0f172a; }
+        .card { background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); padding: 20px; }
+        .btn { padding: 10px 20px; border-radius: 8px; font-weight: 600; transition: all 0.2s; cursor: pointer; }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-primary:hover { background: #d97706; }
+        .input { width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; outline: none; }
+    </style>
+</head>
+<body class="antialiased">
+    <div id="app">
+        <!-- Landing Hero -->
+        <div id="landing" class="min-h-screen bg-[#0f172a] text-white flex flex-col items-center justify-center text-center px-6">
+            <h1 class="text-6xl font-bold mb-4">Bright Aside <span class="text-[#f59e0b]">SACCO</span></h1>
+            <p class="text-xl text-slate-400 max-w-xl mb-8">Secure, Community-Led Savings & Credit for the Bright Aside Self Help Group.</p>
+            <div class="flex gap-4">
+                <button onclick="showLogin('member')" class="btn btn-primary">Member Portal</button>
+                <button onclick="showLogin('admin')" class="btn border border-white/20 hover:bg-white/10">Admin Access</button>
+            </div>
+            
+            <div id="setup-banner" class="mt-20 p-6 bg-white/5 border border-white/10 rounded-2xl max-w-2xl hidden">
+                <h3 class="text-white font-bold mb-2">⚠️ Configuration Required</h3>
+                <p class="text-slate-400 text-sm mb-4">Please deploy the Code.gs to Google Apps Script and paste your Web App URL in the constant below.</p>
+                <input type="text" id="api-url-input" class="bg-white/10 border-none p-2 w-full rounded text-white mb-2" placeholder="https://script.google.com/macros/s/...">
+                <button onclick="saveApiUrl()" class="text-accent font-bold text-sm">Save & Connect</button>
+            </div>
+        </div>
+
+        <!-- Dashboard Template (Hidden initially) -->
+        <div id="dashboard" class="hidden min-h-screen flex">
+            <aside class="w-64 bg-[#1e3a5f] text-white p-6 space-y-6">
+                <h2 class="font-bold text-xl mb-10">Bright Aside</h2>
+                <nav class="space-y-2">
+                    <button class="w-full text-left p-3 rounded-lg bg-accent text-white">🏠 Dashboard</button>
+                    <button class="w-full text-left p-3 rounded-lg hover:bg-white/10">👥 Members</button>
+                    <button class="w-full text-left p-3 rounded-lg hover:bg-white/10">💰 Savings</button>
+                    <button class="w-full text-left p-3 rounded-lg hover:bg-white/10">🏦 Loans</button>
+                </nav>
+            </aside>
+            <main class="flex-1 p-10">
+                <header class="flex justify-between items-center mb-10">
+                    <h1 class="text-2xl font-bold">Admin Dashboard</h1>
+                    <button onclick="logout()" class="text-slate-500 font-bold">Logout</button>
+                </header>
+                
+                <div class="grid grid-cols-4 gap-6 mb-10">
+                    <div class="card"><p class="text-xs text-slate-500 font-bold uppercase mb-1">Savings</p><h4 id="stat-savings" class="text-2xl font-bold">KSh 0</h4></div>
+                    <div class="card"><p class="text-xs text-slate-500 font-bold uppercase mb-1">Members</p><h4 id="stat-members" class="text-2xl font-bold">0</h4></div>
+                    <div class="card"><p class="text-xs text-slate-500 font-bold uppercase mb-1">Active Loans</p><h4 id="stat-loans" class="text-2xl font-bold">0</h4></div>
+                    <div class="card"><p class="text-xs text-slate-500 font-bold uppercase mb-1">Pending Fines</p><h4 id="stat-fines" class="text-2xl font-bold text-red-500">KSh 0</h4></div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-6">
+                    <div class="card bg-white h-80"><canvas id="savingsChart"></canvas></div>
+                    <div class="card bg-white h-80"><canvas id="loanChart"></canvas></div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        // CONFIGURATION
+        let API_URL = "YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
+
+        function saveApiUrl() {
+            const url = document.getElementById('api-url-input').value;
+            if (url) {
+                API_URL = url;
+                localStorage.setItem('SACCO_API_URL', url);
+                location.reload();
+            }
+        }
+
+        const API = {
+            get: async (action, params = {}) => {
+                const url = new URL(API_URL);
+                url.searchParams.set('action', action);
+                Object.entries(params).forEach(([k,v]) => url.searchParams.set(k, v));
+                const res = await fetch(url.toString());
+                const json = await res.json();
+                return json.data;
+            },
+            post: async (action, payload) => {
+                const res = await fetch(API_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action, payload })
+                });
+                const json = await res.json();
+                return json.data;
+            }
+        };
+
+        window.onload = async () => {
+            const savedUrl = localStorage.getItem('SACCO_API_URL');
+            if (savedUrl) API_URL = savedUrl;
+            
+            if (API_URL === "YOUR_APPS_SCRIPT_WEB_APP_URL_HERE") {
+                document.getElementById('setup-banner').classList.remove('hidden');
+            } else {
+                // Initialize if logged in
+                const session = sessionStorage.getItem('SACCO_SESSION');
+                if (session) showDashboard();
+            }
+        };
+
+        function showLogin(role) {
+            if (API_URL === "YOUR_APPS_SCRIPT_WEB_APP_URL_HERE") {
+                alert("Please set your API URL first!");
+                return;
+            }
+            // For demo: auto-login
+            sessionStorage.setItem('SACCO_SESSION', 'admin');
+            showDashboard();
+        }
+
+        async function showDashboard() {
+            document.getElementById('landing').classList.add('hidden');
+            document.getElementById('dashboard').classList.remove('hidden');
+            
+            try {
+                const stats = await API.get('getDashboard');
+                document.getElementById('stat-savings').innerText = `KSh ${stats.totalSavings.toLocaleString()}`;
+                document.getElementById('stat-members').innerText = stats.memberCount;
+                document.getElementById('stat-loans').innerText = stats.activeLoansCount;
+                document.getElementById('stat-fines').innerText = `KSh ${stats.totalPendingFines.toLocaleString()}`;
+                
+                initCharts();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function logout() {
+            sessionStorage.removeItem('SACCO_SESSION');
+            location.reload();
+        }
+
+        function initCharts() {
+            const ctx1 = document.getElementById('savingsChart').getContext('2d');
+            new Chart(ctx1, {
+                type: 'bar',
+                data: { labels: ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4'], datasets: [{ label: 'Weekly Savings', data: [12000, 19000, 3000, 5000], backgroundColor: '#f59e0b' }] }
+            });
+            
+            const ctx2 = document.getElementById('loanChart').getContext('2d');
+            new Chart(ctx2, {
+                type: 'doughnut',
+                data: { labels: ['Paid', 'Arrears'], datasets: [{ data: [300000, 150000], backgroundColor: ['#10b981', '#ef4444'] }] }
+            });
+        }
+    </script>
+</body>
+</html>
